@@ -149,17 +149,27 @@ dialog::backdrop{background:#0008}
   <div class="line">
     <label>제한 시간 <select id="sTime"><option value="0">없음</option><option value="30">30초</option><option value="60" selected>60초</option><option value="90">90초</option></select></label>
     <label><input type="checkbox" id="sShuf" checked> 순서 섞기</label>
+    <label><input type="checkbox" id="sAgain"> 틀린 건 맞을 때까지 다시</label>
     <label><input type="checkbox" id="sPhoto"> 사진 있는 것만</label>
   </div>
   <div class="row" style="justify-content:flex-start">
     <button class="pri" id="bRestart">이 범위로 시작</button>
     <button id="bPhotos">약재·사진 관리</button>
+    <button id="bWrong">오답 노트</button>
   </div>
   <p class="note">豨·薟·檉·薢·萹(희렴초·정류·비해·편축)은 필기 인식 데이터에 없어요. 칸에 쓰고 ‘쓴 그대로 넣기’를 누르면 채점 때 정답과 비교해서 직접 O/X를 골라요. 荊·蔘·蔯은 荆·参·陈으로 써도 정답이에요.</p>
   <p class="note">약재 사진은 본초학실습 PPT에서 정품 사진만 골라 넣었어요(102종). 석결명·모려는 분말로 배부됐지만 사진은 PPT의 원형 약재예요. 백출초·갈화·자단향·대황주증은 PPT에 사진이 없어 한글명으로 나와요. ‘약재·사진 관리’에서 약재를 추가하거나 직접 찍은 사진으로 바꿀 수 있어요. 정답을 확인하면 본초실습서 ‘감별요점 해답’과 PPT의 기원 설명이 해설로 나와요. 1단계(한글명)는 사진이 있는 약재만 나오고, 용뇌·야교등·마자인 같은 이명도 정답으로 인정해요.</p>
 </div>
 </div>
 
+<dialog id="wdlg">
+  <div class="dh">
+    <div class="row"><h2 style="margin:0" id="wTitle">오답 노트</h2><button class="sm" id="wClose">닫기</button></div>
+    <p class="note">틀린 약재가 이 기기에 자동으로 모여요. ‘오답만 풀기’는 섞어서 내고, 틀리면 뒤에 다시 섞어 넣어서 전부 맞힐 때까지 이어져요. 맞히면 바로 오답 노트에서 빠져요. 1단계와 2단계는 따로 모아요.</p>
+    <div class="row" style="justify-content:flex-start"><button class="pri sm" id="wStart">오답만 풀기 · 맞을 때까지</button><button class="sm" id="wClear">전체 비우기</button></div>
+  </div>
+  <div class="plist" id="wlist"></div>
+</dialog>
 <dialog id="dlg">
   <div class="dh">
     <div class="row"><h2 style="margin:0">약재·사진 관리</h2><button class="sm" id="dClose">닫기</button></div>
@@ -9732,6 +9742,7 @@ const matcher=new HanziLookup.Matcher('mmah');
 
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d'),pad=$('pad');
+let until=false,uniq=0,tries=0;
 let strokes=[],cur=null,order=[],qi=0,answer=[],wrong=[],score=0,locked=false,timer=null,left=0,total=0;
 const photos={};// hz -> dataURL
 let mode='ko';try{mode=localStorage.getItem('bonchoMode')||'ko'}catch(e){}
@@ -9786,8 +9797,7 @@ function renderQ(){
   }else $('qcard').innerHTML=img
     ?`<img src="${img}" alt="문제 약재 사진"><p class="k">이 약재의 이름을 한자로 쓰세요 · ${n}글자</p><div class="hint" id="hint" hidden>${H.ko}</div>`
     :`<p class="k">${GN[H.g]} · ${n}글자</p><div class="ko">${H.ko}</div><p class="k">한자로 쓰세요</p><div class="hint" id="hint" hidden>첫 글자: <span class="hz">${[...H.hz][0]}</span></div>`;
-  $('prog').textContent=`${qi+1} / ${order.length} · 정답 ${score}`;
-  answer=[];locked=false;$('fb').className='fb';$('fb').innerHTML='';
+  answer=[];locked=false;prog();$('fb').className='fb';$('fb').innerHTML='';
   ['bSubmit','bPass','bHint'].forEach(b=>$(b).disabled=false);
   $('bHint').textContent=mode==='ko'?'첫 글자 보기':img?'한글명 보기':'첫 글자 보기';
   clearPad();renderAns();startTimer();
@@ -9824,20 +9834,26 @@ function explain(H){
 }
 function result(ok,timeout,kv){
   const H=HERBS[order[qi]];
-  if(ok)score++;else wrong.push(order[qi]);
+  if(ok)score++;else{tries++;if(!until||!wrong.includes(order[qi]))wrong.push(order[qi]);
+    if(until){const lo=Math.min(qi+3,order.length),p=lo+Math.floor(Math.random()*(order.length-lo+1));order.splice(p,0,order[qi])}}
+  logWR(H,ok);
   const alt=H.alt.length?` <span class="note">(${H.alt.join(', ')}도 인정)</span>`:'';
   const mine=mode==='ko'?(!ok&&kv?`<div class="mine">내 답: <span class="ko2">${kv.replace(/</g,'&lt;')}</span></div>`:''):(!ok&&answer.length?`<div class="mine">내 답: ${answer.map(a=>`<div class="slot hz">${cell(a)}</div>`).join('')}</div>`:'');
   const kalt=H.koAlt&&H.koAlt.length?` <span class="note">(${H.koAlt.join(', ')}도 인정)</span>`:'';
   const fb=$('fb');fb.className='fb on '+(ok?'ok':'no');
   fb.innerHTML=`<b>${ok?'정답이에요':timeout?'땡! 시간이 끝났어요':'아쉬워요'}</b>`+(mode==='ko'?`<div class="big">${H.ko}</div><div><span class="hz" style="font-size:22px">${H.hz}</span>${kalt}</div>`:`<div class="big hz">${H.hz}</div><div>${H.ko}${alt}</div>`)+`${H.note?`<div class="note">${H.note}</div>`:''}${mine}${explain(H)}<div class="row" style="margin-top:10px;justify-content:flex-start"><button class="pri" id="bNext">${qi+1<order.length?'다음 문제':'결과 보기'}</button></div>`;
-  $('prog').textContent=`${qi+1} / ${order.length} · 정답 ${score}`;
+  prog();
   if(!ok){$('qcard').classList.remove('flash');void $('qcard').offsetWidth;$('qcard').classList.add('flash')}
   $('bNext').onclick=next;fb.scrollIntoView({block:'nearest',behavior:'smooth'});$('bNext').focus({preventScroll:true});
 }
+function prog(){$('prog').textContent=until?`맞힌 약재 ${score} / ${uniq} · 남은 문제 ${order.length-qi-(locked?1:0)}`:`${qi+1} / ${order.length} · 정답 ${score}`}
 function next(){qi++;if(qi<order.length)renderQ();else finish()}
 function finish(){
   clearInterval(timer);$('quiz').hidden=true;const d=$('done');d.hidden=false;$('barI').style.width='0';
-  d.innerHTML=`<div class="score">${score} / ${order.length}</div><p>${wrong.length?'틀린 약재':'모두 맞혔어요'}</p>`+
+  if(until){d.innerHTML=`<div class="score">${uniq}개 완료</div><p>모두 맞혔어요${tries?` · 그동안 ${tries}번 틀렸어요`:' · 한 번도 안 틀렸어요'}</p>`+(wrong.length?`<ul class="wrong">${wrong.map(i=>`<li><span>${HERBS[i].ko}</span><span class="hz">${HERBS[i].hz}</span></li>`).join('')}</ul>`:'')+`<div class="row">${wrong.length?'<button class="pri" id="bRetry">틀렸던 것 한 번 더</button>':''}<button id="bAll">전체 다시</button></div>`;
+    if($('bRetry')){const w=wrong.slice();$('bRetry').onclick=()=>start(w,true)}
+    $('bAll').onclick=()=>start();return}
+  d.innerHTML=`<div class="score">${score} / ${order.length}</div><p>${wrong.length?'틀린 약재 · 오답 노트에 저장했어요':'모두 맞혔어요'}</p>`+
     (wrong.length?`<ul class="wrong">${wrong.map(i=>`<li><span>${HERBS[i].ko}</span><span class="hz">${HERBS[i].hz}</span></li>`).join('')}</ul><div class="row"><button class="pri" id="bRetry">틀린 것만 다시</button><button id="bAll">전체 다시</button></div>`:`<div class="row"><button class="pri" id="bAll">전체 다시</button></div>`);
   if($('bRetry')){const w=wrong.slice();$('bRetry').onclick=()=>start(w)}
   $('bAll').onclick=()=>start();
@@ -9846,11 +9862,11 @@ function pool(){
   const gs=[...document.querySelectorAll('#groups input:checked')].map(i=>+i.value),onlyP=$('sPhoto').checked;
   return HERBS.map((_,i)=>i).filter(i=>gs.includes(HERBS[i].g)&&((!onlyP&&mode!=='ko')||imgOf(HERBS[i])));
 }
-function start(list){
-  order=list||pool();
+function start(list,u){
+  order=(list||pool()).slice();until=u!==undefined?u:$('sAgain').checked;
   if(!order.length){$('quiz').hidden=true;const d=$('done');d.hidden=false;d.innerHTML=mode==='ko'?'<p>고른 범위에 사진 있는 약재가 없어요. 범위를 더 골라 주세요.</p>':'<p>고른 범위에 문제가 없어요. 범위를 고르거나 ‘사진 있는 것만’을 꺼 주세요.</p>';$('prog').textContent='';return}
-  if($('sShuf').checked)for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]]}
-  qi=0;score=0;wrong=[];$('quiz').hidden=false;$('done').hidden=true;fit();renderQ();
+  if($('sShuf').checked||until)for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]]}
+  qi=0;score=0;wrong=[];tries=0;uniq=order.length;$('quiz').hidden=false;$('done').hidden=true;fit();renderQ();
 }
 $('bSubmit').onclick=()=>grade(false);
 $('bPass').onclick=()=>{answer=[];$('koIn').value='';grade(false)};
@@ -9859,7 +9875,7 @@ $('bRestart').onclick=()=>start();
 $('koIn').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();if(!locked)grade(false);else if($('bNext'))$('bNext').click()}});
 function setMode(m){mode=m;try{localStorage.setItem('bonchoMode',m)}catch(e){}
   document.querySelectorAll('.mode button').forEach(b=>b.setAttribute('aria-selected',b.dataset.m===m));
-  $('sPhoto').closest('label').style.display=m==='ko'?'none':'';}
+  $('sPhoto').closest('label').style.display=m==='ko'?'none':'';if($('bWrong').onclick)updWBtn();}
 document.querySelectorAll('.mode button').forEach(b=>b.onclick=()=>{if(b.dataset.m!==mode){setMode(b.dataset.m);start()}});
 setMode(mode);
 $('sTime').onchange=()=>{if(!locked&&!$('quiz').hidden)startTimer()};
@@ -9956,6 +9972,29 @@ $('fImp').onchange=async()=>{const f=$('fImp').files[0];if(!f)return;
     saveCustom();$('pStat').dataset.keep=1;$('pStat').textContent=`불러왔어요: 약재 ${nH}개, 사진 ${nP}장`;
   }catch(e){$('pStat').dataset.keep=1;$('pStat').textContent='이 앱에서 내보낸 파일이 아니에요.'}
   renderPhotos()};
+
+
+/* ---------- wrong-answer notebook ---------- */
+let WR={ko:{},hz:{}};try{const w=JSON.parse(localStorage.getItem('bonchoWrong')||'null');if(w&&w.ko&&w.hz)WR=w}catch(e){}
+function saveWR(){try{localStorage.setItem('bonchoWrong',JSON.stringify(WR))}catch(e){}updWBtn()}
+function logWR(H,ok){const m=WR[mode],e=m[H.hz];
+  if(!ok){m[H.hz]={n:(e?e.n:0)+1,ok:0,last:Date.now()}}
+  else if(e){delete m[H.hz]}
+  saveWR()}
+function wIdx(){return Object.entries(WR[mode]).sort((a,b)=>b[1].n-a[1].n||b[1].last-a[1].last).map(([hz])=>HERBS.findIndex(h=>h.hz===hz)).filter(i=>i>=0&&(mode!=='ko'||imgOf(HERBS[i])))}
+function updWBtn(){const n=wIdx().length;$('bWrong').textContent=`오답 노트 (${n})`}
+function renderW(){
+  const L=wIdx();$('wTitle').textContent=`오답 노트 · ${mode==='ko'?'1단계 한글명':'2단계 한자'} (${L.length})`;
+  $('wStart').disabled=!L.length;
+  $('wlist').innerHTML=L.length?L.map(i=>{const h=HERBS[i],e=WR[mode][h.hz];return `<div class="pi">${imgOf(h)?`<img class="th" src="${imgOf(h)}" alt="">`:'<div class="th"></div>'}<div class="nm">${h.ko}<span class="hz">${h.hz}</span><div class="note" style="margin:0">${e.n}번 틀림</div></div><button class="sm" data-wdel="${h.hz}">빼기</button></div>`}).join(''):'<p class="note">아직 틀린 약재가 없어요.</p>';
+}
+$('bWrong').onclick=()=>{renderW();try{$('wdlg').showModal()}catch(e){$('wdlg').setAttribute('open','')}};
+const wclose=()=>{$('wdlg').close?$('wdlg').close():$('wdlg').removeAttribute('open')};
+$('wClose').onclick=wclose;
+$('wStart').onclick=()=>{const L=wIdx();if(!L.length)return;wclose();start(L,true)};
+$('wClear').onclick=e=>{const b=e.target;if(b.dataset.sure){WR[mode]={};saveWR();renderW();delete b.dataset.sure;b.textContent='전체 비우기'}else{b.dataset.sure='1';b.textContent='정말 비우기'}};
+$('wlist').onclick=e=>{const k=e.target.dataset&&e.target.dataset.wdel;if(!k)return;delete WR[mode][k];saveWR();renderW()};
+updWBtn();
 
 new ResizeObserver(fit).observe(pad);
 idb().then(d=>{db=d;return dbAll()}).then(()=>start());
