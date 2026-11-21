@@ -1,5 +1,5 @@
 // 본초 땡시 서비스 워커: 앱 파일을 저장해서 인터넷 없이도 열리게 함
-const VERSION = 'boncho-v2';
+const VERSION = 'boncho-v3';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
